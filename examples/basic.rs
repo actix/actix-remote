@@ -1,13 +1,44 @@
 extern crate log;
 extern crate env_logger;
-extern crate actix;
+#[macro_use] extern crate actix;
 extern crate actix_remote;
 extern crate serde_json;
+#[macro_use] extern crate serde_derive;
 extern crate structopt;
 #[macro_use] extern crate structopt_derive;
 
 use actix_remote::*;
+use actix::prelude::*;
 use structopt::StructOpt;
+
+
+#[derive(Debug, Message, Serialize, Deserialize)]
+struct TestMessage {
+    msg: String,
+}
+
+impl RemoteMessage for TestMessage {
+    fn type_id() -> &'static str {
+        "TestMessage"
+    }
+}
+
+struct MyActor {
+    cnt: usize,
+    recipient: Recipient<Remote, TestMessage>,
+}
+
+impl Actor for MyActor {
+    type Context = Context<Self>;
+}
+
+impl Handler<TestMessage> for MyActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: TestMessage, ctx: &mut Context<Self>) {
+        println!("MSG: {:?}", msg);
+    }
+}
 
 
 #[derive(StructOpt, Debug)]
@@ -29,9 +60,15 @@ fn main() {
 
     let sys = actix::System::new("remote-example");
 
-    Network::new(addr).unwrap()
-        .add_node(node)
-        .start();
+    let mut world = World::new(addr).unwrap().add_node(node);
+    let recipient = world.get_recipient::<TestMessage>();
+    let addr = world.start();
+
+    let a: Addr<Unsync, _> = MyActor::create(move |ctx| {
+        RemoteRecipient::register(
+            &addr, ctx.address::<Addr<Syn, _>>().recipient());
+        MyActor{cnt: 0, recipient}
+    });
 
     let _ = sys.run();
 }

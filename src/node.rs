@@ -10,7 +10,7 @@ use tokio_io::codec::FramedRead;
 use actix::prelude::*;
 
 use msgs;
-use network::Network;
+use world::World;
 use protocol::{Request, Response, NetworkClientCodec};
 
 
@@ -33,7 +33,7 @@ impl NodeInformation {
                   status: Cell::new(NodeStatus::New)}
         )}
     }
-    
+
     pub fn address(&self) -> &str {
         self.inner.as_ref().addr.as_str()
     }
@@ -60,7 +60,7 @@ struct Inner {
 
 /// NetworkNode - Actor responsible for network node
 pub struct NetworkNode {
-    net: Addr<Unsync, Network>,
+    world: Addr<Unsync, World>,
     addr: String,
     inner: NodeInformation,
     backoff: ExponentialBackoff,
@@ -80,13 +80,20 @@ impl Actor for NetworkNode {
             .map(|res, act, ctx| match res {
                 Ok(stream) => {
                     info!("Connected to network node: {}", act.inner.address());
+
                     let (r, w) = stream.split();
-                    let mut framed = actix::io::FramedWrite::new(w, NetworkClientCodec::default(), ctx);
+
+                    // configure write side of the connection
+                    let mut framed =
+                        actix::io::FramedWrite::new(w, NetworkClientCodec::default(), ctx);
                     framed.write(Request::Handshake(act.addr.clone()));
                     act.framed = Some(framed);
+
+                    // read side of the connection
+                    ctx.add_stream(FramedRead::new(r, NetworkClientCodec::default()));
+
                     act.backoff.reset();
                     act.inner.set_status(NodeStatus::Ok);
-                    ctx.add_stream(FramedRead::new(r, NetworkClientCodec::default()));
                 },
                 Err(err) => act.restart(Some(err), ctx),
             })
@@ -108,9 +115,9 @@ impl Supervised for NetworkNode {
 impl actix::io::WriteHandler<io::Error> for NetworkNode {}
 
 impl NetworkNode {
-    pub fn new(addr: String, net: Addr<Unsync, Network>, info: NodeInformation) -> NetworkNode {
+    pub fn new(addr: String, world: Addr<Unsync, World>, info: NodeInformation) -> NetworkNode {
         info!("New network node: {}", addr);
-        NetworkNode {net: net,
+        NetworkNode {world: world,
                      addr: addr,
                      inner: info,
                      framed: None,
@@ -155,8 +162,16 @@ impl StreamHandler<Response, io::Error> for NetworkNode
     }
 
     /// This is main event loop for server responses
-    fn handle(&mut self, _: Response, _ctx: &mut Self::Context) {
-        // println!("test: {:?}", msg);
+    fn handle(&mut self, msg: Response, _ctx: &mut Self::Context) {
+        match msg {
+            Response::Supported(types) => {
+                self.world.do_send(msgs::NodeSupportedTypes {
+                    node: self.addr.clone(),
+                    types: types
+                });
+            },
+            _ => (),
+        }
     }
 }
 

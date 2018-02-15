@@ -13,12 +13,14 @@ extern crate tokio_io;
 
 mod msgs;
 mod node;
-mod network;
+mod world;
 mod protocol;
 mod remote;
+mod recipient;
 mod worker;
 mod utils;
 
+pub use world::World;
 pub use remote::{Remote, RemoteMessage};
-pub use network::Network;
-pub use msgs::{RegisterNode, RegisterRecipient};
+pub use msgs::RegisterNode;
+pub use recipient::RemoteRecipient;

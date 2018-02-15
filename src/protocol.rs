@@ -25,6 +25,8 @@ pub enum Response {
     Handshake,
     Ping,
     Pong,
+    /// Announce supported message types
+    Supported(Vec<String>),
     /// Response(msg_id, payload)
     Response(String, String),
 }

@@ -1,11 +1,10 @@
-use std::marker::PhantomData;
-
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use futures::unsync::oneshot::Receiver;
+use futures::sync::oneshot::Receiver;
 
-use actix::dev::{Message, MessageRecipient, MessageRecipientTransport,
-                 SendError, RecipientRequest};
+use actix::dev::{Message, MessageRecipient, SendError, RecipientRequest};
+
+use recipient::RecipientProxySender;
 
 
 pub trait RemoteMessage: Message + Send + Serialize + DeserializeOwned
@@ -20,7 +19,7 @@ impl<M> MessageRecipient<M> for Remote
     where M: RemoteMessage + 'static, M::Result: Send + Serialize + DeserializeOwned
 {
     type Envelope = RemoteMessageEnvelope<M>;
-    type Transport = RemoteSender<M>;
+    type Transport = RecipientProxySender<M>;
     type ResultReceiver = Receiver<M::Result>;
 
     fn do_send(tx: &Self::Transport, msg: M) -> Result<(), SendError<M>> {
@@ -66,42 +65,5 @@ impl<M: RemoteMessage> From<M> for RemoteMessageEnvelope<M>
 {
     fn from(msg: M) -> RemoteMessageEnvelope<M> {
         RemoteMessageEnvelope{msg: msg}
-    }
-}
-
-pub struct RemoteSender<M: RemoteMessage>
-    where M::Result: Send + Serialize + DeserializeOwned
-{
-    m: PhantomData<M>
-}
-
-impl<M> RemoteSender<M> where M: RemoteMessage, M::Result: Send + Serialize + DeserializeOwned
-{
-    fn do_send(&self, _msg: M) -> Result<(), SendError<M>> {
-        unimplemented!()
-    }
-
-    fn try_send(&self, _msg: M) -> Result<(), SendError<M>> {
-        unimplemented!()
-    }
-
-    fn send(&self, _msg: M) -> Result<Receiver<M::Result>, SendError<M>> {
-        unimplemented!()
-    }
-}
-
-impl<M> MessageRecipientTransport<Remote, M> for RemoteSender<M>
-    where M: RemoteMessage + 'static, M::Result: Send + Serialize + DeserializeOwned
-{
-    fn send(&self, msg: M) -> Result<Receiver<M::Result>, SendError<M>> {
-        RemoteSender::send(self, msg)
-    }
-}
-
-impl<M> Clone for RemoteSender<M>
-    where M: RemoteMessage, M::Result: Send + Serialize + DeserializeOwned,
-{
-    fn clone(&self) -> Self {
-        RemoteSender {m: PhantomData}
     }
 }
