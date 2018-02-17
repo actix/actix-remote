@@ -2,10 +2,8 @@ use std::io;
 use std::cell::Cell;
 use std::sync::Arc;
 use std::collections::HashMap;
-use bytes::Bytes;
 use backoff::ExponentialBackoff;
 use backoff::backoff::Backoff;
-use futures::Future;
 use futures::unsync::oneshot;
 use tokio_core::net::TcpStream;
 use tokio_io::AsyncRead;
@@ -182,7 +180,7 @@ impl StreamHandler<Response, io::Error> for NetworkNode
             Response::Result(id, data) => {
                 if let Some(tx) = self.requests.remove(&id) {
                     debug!("GOT REMOTE RESULT: {:?} {:?}", id, data);
-                    tx.send(data);
+                    let _ = tx.send(data);
                 }
             },
             _ => (),
@@ -204,7 +202,7 @@ impl Handler<msgs::ReconnectNode> for NetworkNode {
 impl Handler<msgs::SendRemoteMessage> for NetworkNode {
     type Result = ActixResponse<String, io::Error>;
 
-    fn handle(&mut self, msg: msgs::SendRemoteMessage, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, msg: msgs::SendRemoteMessage, _: &mut Context<Self>) -> Self::Result {
         if let Some(ref mut framed) = self.framed {
             self.mid += 1;
             self.requests.insert(self.mid, msg.tx);

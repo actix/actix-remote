@@ -80,7 +80,7 @@ struct Cli {
 }
 
 fn main() {
-    ::std::env::set_var("RUST_LOG", "actix_remote=info");
+    ::std::env::set_var("RUST_LOG", "actix_remote=debug");
     let _ = env_logger::init();
 
     // cmd arguments

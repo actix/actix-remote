@@ -4,12 +4,10 @@ use std::marker::PhantomData;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use futures::{Async, Future, Poll};
-use futures::sync::oneshot::Receiver;
 use tokio_core::reactor::Timeout;
 
 use actix::prelude::*;
-use actix::dev::{Message, MessageRecipient,
-                 SendError, MailboxError, MessageRecipientTransport};
+use actix::dev::{Message, MessageRecipient, SendError, MailboxError};
 
 use recipient::RecipientProxySender;
 
@@ -30,8 +28,7 @@ impl<M> MessageRecipient<M> for Remote
 
     type SendError = SendError<M>;
     type MailboxError = MailboxError;
-    type Receiver = Receiver<M::Result>;
-    type ReceiverFuture = RemoteRecipientRequest<Self, M>;
+    type Request = RemoteRecipientRequest<Self, M>;
 
     fn do_send(tx: &Self::Transport, msg: M) -> Result<(), SendError<M>> {
         tx.do_send(msg)

@@ -78,7 +78,7 @@ impl<T> StreamHandler<Request, io::Error> for NetworkWorker<T>
                         .then(move |res, act, _| {
                             match res {
                                 Ok(res) => act.framed.write(Response::Result(msg_id, res)),
-                                Err(e) => (),
+                                Err(_) => (),
                             }
                             actix::fut::ok(())
                         })

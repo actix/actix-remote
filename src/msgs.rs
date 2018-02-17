@@ -2,7 +2,6 @@
 
 use std::{net, io};
 use std::sync::Arc;
-use bytes::Bytes;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use futures::sync::mpsc::Receiver;

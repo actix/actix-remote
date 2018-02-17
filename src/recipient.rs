@@ -1,17 +1,14 @@
 #![allow(dead_code, unused_variables)]
 use std::marker::PhantomData;
 
-use actix::prelude::*;
-use actix::dev::{MessageResponse, ResponseChannel};
-use bytes::Bytes;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json;
 use futures::Future;
-use futures::sync::oneshot::Receiver;
 use futures::unsync::oneshot::{self, Sender};
 
-use actix::dev::{MessageRecipientTransport, SendError};
+use actix::prelude::*;
+use actix::dev::{MessageResponse, ResponseChannel, SendError};
 
 use msgs;
 use node::NetworkNode;
@@ -179,15 +176,6 @@ impl<M> RecipientProxySender<M>
 
     pub fn send(&self, msg: M) -> RemoteRecipientRequest<Remote, M> {
         RemoteRecipientRequest::new(self.tx.send(msg))
-    }
-}
-
-impl<M> MessageRecipientTransport<Remote, M> for RecipientProxySender<M>
-    where M: RemoteMessage + 'static, M::Result: Send + Serialize + DeserializeOwned
-{
-    fn send(&self, msg: M) -> Result<Receiver<M::Result>, SendError<M>> {
-        // RecipientProxySender::send(self, msg)
-        unimplemented!()
     }
 }
 
