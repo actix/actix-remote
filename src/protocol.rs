@@ -15,7 +15,7 @@ pub enum Request {
     Ping,
     Pong,
     /// Message(msg_id, type_id, ver, payload)
-    Message(String, String, String, String),
+    Message(u64, String, String, String),
 }
 
 /// Server response
@@ -28,7 +28,9 @@ pub enum Response {
     /// Announce supported message types
     Supported(Vec<String>),
     /// Response(msg_id, payload)
-    Response(String, String),
+    Result(u64, String),
+    /// Error(msg_id, error-code)
+    Error(u64, u16),
 }
 
 /// Codec for Client -> Server transport

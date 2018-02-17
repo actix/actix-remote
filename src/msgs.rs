@@ -1,12 +1,14 @@
 #![allow(dead_code)]
 
-use std::net;
+use std::{net, io};
 use std::sync::Arc;
+use bytes::Bytes;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use futures::sync::mpsc::Receiver;
+use futures::unsync::oneshot::Sender;
 
-use actix::{Actor, Addr, Handler, Unsync};
+use actix::{Actor, Addr, Handler, Message, Unsync};
 
 use node::NetworkNode;
 use remote::RemoteMessage;
@@ -47,7 +49,6 @@ pub(crate) struct GetRecipient<M>
     pub rx: Receiver<M>,
 }
 
-
 #[derive(Message)]
 pub(crate) struct NodeGone(pub String);
 
@@ -57,3 +58,14 @@ pub(crate) struct TypeSupported{
     pub node: Addr<Unsync, NetworkNode>}
 
 pub(crate) trait NodeOperations: Actor + Handler<NodeGone> + Handler<TypeSupported> {}
+
+
+pub(crate) struct SendRemoteMessage{
+    pub type_id: String,
+    pub data: String,
+    pub tx: Sender<String>,
+}
+
+impl Message for SendRemoteMessage {
+    type Result = Result<String, io::Error>;
+}

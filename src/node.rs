@@ -1,13 +1,18 @@
 use std::io;
 use std::cell::Cell;
 use std::sync::Arc;
+use std::collections::HashMap;
+use bytes::Bytes;
 use backoff::ExponentialBackoff;
 use backoff::backoff::Backoff;
+use futures::Future;
+use futures::unsync::oneshot;
 use tokio_core::net::TcpStream;
 use tokio_io::AsyncRead;
 use tokio_io::io::WriteHalf;
 use tokio_io::codec::FramedRead;
 use actix::prelude::*;
+use actix::prelude::{Response as ActixResponse};
 
 use msgs;
 use world::World;
@@ -60,11 +65,13 @@ struct Inner {
 
 /// NetworkNode - Actor responsible for network node
 pub struct NetworkNode {
+    mid: u64,
     world: Addr<Unsync, World>,
     addr: String,
     inner: NodeInformation,
     backoff: ExponentialBackoff,
     framed: Option<actix::io::FramedWrite<WriteHalf<TcpStream>, NetworkClientCodec>>,
+    requests: HashMap<u64, oneshot::Sender<String>>,
 }
 
 impl Actor for NetworkNode {
@@ -117,10 +124,12 @@ impl actix::io::WriteHandler<io::Error> for NetworkNode {}
 impl NetworkNode {
     pub fn new(addr: String, world: Addr<Unsync, World>, info: NodeInformation) -> NetworkNode {
         info!("New network node: {}", addr);
-        NetworkNode {world: world,
+        NetworkNode {mid: 0,
+                     world: world,
                      addr: addr,
                      inner: info,
                      framed: None,
+                     requests: HashMap::new(),
                      backoff: ExponentialBackoff::default(),
         }
     }
@@ -166,9 +175,15 @@ impl StreamHandler<Response, io::Error> for NetworkNode
         match msg {
             Response::Supported(types) => {
                 self.world.do_send(msgs::NodeSupportedTypes {
-                    node: self.addr.clone(),
+                    node: self.inner.address().to_string(),
                     types: types
                 });
+            },
+            Response::Result(id, data) => {
+                if let Some(tx) = self.requests.remove(&id) {
+                    debug!("GOT REMOTE RESULT: {:?} {:?}", id, data);
+                    tx.send(data);
+                }
             },
             _ => (),
         }
@@ -181,5 +196,20 @@ impl Handler<msgs::ReconnectNode> for NetworkNode {
 
     fn handle(&mut self, _: msgs::ReconnectNode, ctx: &mut Context<Self>) {
         self.stop_actor(ctx);
+    }
+}
+
+
+/// Send remote mesage
+impl Handler<msgs::SendRemoteMessage> for NetworkNode {
+    type Result = ActixResponse<String, io::Error>;
+
+    fn handle(&mut self, msg: msgs::SendRemoteMessage, ctx: &mut Context<Self>) -> Self::Result {
+        if let Some(ref mut framed) = self.framed {
+            self.mid += 1;
+            self.requests.insert(self.mid, msg.tx);
+            framed.write(Request::Message(self.mid, msg.type_id, "1.0".to_string(), msg.data));
+        }
+        ActixResponse::reply(Err(io::Error::new(io::ErrorKind::Other, "test")))
     }
 }

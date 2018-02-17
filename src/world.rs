@@ -18,7 +18,7 @@ use utils;
 use worker::NetworkWorker;
 use node::{NetworkNode, NodeInformation};
 use remote::{Remote, RemoteMessage};
-use recipient::{RecipientProxy, RecipientProxySender, RemoteMessageHandler};
+use recipient::{RemoteRecipient, RecipientProxy, RecipientProxySender, RemoteMessageHandler};
 
 
 struct Proxy {
@@ -113,6 +113,13 @@ impl World {
                                  service: addr.clone().recipient()});
 
         return Recipient::new(RecipientProxySender::new(saddr))
+    }
+
+    pub fn register_recipient<M>(world: &Addr<Syn, World>, recipient: Recipient<Syn, M>)
+        where M: RemoteMessage + 'static, M::Result: Send + Serialize + DeserializeOwned
+    {
+        let r = RemoteRecipient{recipient: recipient};
+        world.do_send(msgs::RegisterRecipient(M::type_id(), Arc::new(r)))
     }
 
     fn stop(&mut self, ctx: &mut Context<Self>) {
@@ -223,7 +230,7 @@ impl Handler<msgs::NodeConnected> for World {
         }
 
         let addr = msg.0.clone();
-        let naddr = addr.clone();
+        let naddr = self.addr.clone();
         let net = ctx.address();
         let info = NodeInformation::new(msg.0.clone());
         let node: Addr<Unsync, _> =

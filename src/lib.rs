@@ -21,6 +21,5 @@ mod worker;
 mod utils;
 
 pub use world::World;
-pub use remote::{Remote, RemoteMessage};
 pub use msgs::RegisterNode;
-pub use recipient::RemoteRecipient;
+pub use remote::{Remote, RemoteMessage};

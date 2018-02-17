@@ -2,6 +2,7 @@ use std::io;
 use std::sync::Arc;
 use std::collections::HashMap;
 
+use futures::unsync::oneshot::channel;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::io::WriteHalf;
 use tokio_io::codec::FramedRead;
@@ -59,15 +60,31 @@ impl<T> StreamHandler<Request, io::Error> for NetworkWorker<T>
     where T: AsyncRead + AsyncWrite + 'static
 {
     fn finished(&mut self, ctx: &mut Self::Context) {
-
         self.net.do_send(msgs::WorkerDisconnected(self.id));
         ctx.stop();
     }
-    
+
     /// This is main event loop for client connection
-    fn handle(&mut self, msg: Request, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: Request, ctx: &mut Self::Context) {
         match msg {
             Request::Handshake(addr) => self.net.do_send(NodeConnected(addr)),
+            Request::Message(msg_id, type_id, _, body) => {
+                debug!("RECEIVED MESSAGE: {:?} {:?} {:?}", msg_id, type_id, body);
+                if let Some(ref handler) = self.handlers.get(type_id.as_str()) {
+                    let (tx, rx) = channel();
+                    handler.handle(body, tx);
+
+                    rx.into_actor(self)
+                        .then(move |res, act, _| {
+                            match res {
+                                Ok(res) => act.framed.write(Response::Result(msg_id, res)),
+                                Err(e) => (),
+                            }
+                            actix::fut::ok(())
+                        })
+                        .spawn(ctx)
+                }
+            },
             _ => {
                 println!("CLIENT REQ: {:?}", msg);
             }
