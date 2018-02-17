@@ -21,9 +21,7 @@ travis-ci = { repository = "actix/actix-remote", branch = "master" }
 codecov = { repository = "actix/actix-remote", branch = "master", service = "github" }
 
 [dependencies]
-#actix = "^0.4.5"
-#actix = { git = "https://github.com/actix/actix.git" }
-actix = { path = "../actix" }
+actix = { git = "https://github.com/actix/actix.git" }
 
 log = "0.4"
 net2 = "0.2"
