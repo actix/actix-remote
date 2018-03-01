@@ -4,6 +4,8 @@
 //!
 //! first instance sends messages, second instance respondes to messages from first instance
 //!
+#![allow(dead_code, unused_variables)]
+
 extern crate log;
 extern crate env_logger;
 extern crate futures;
@@ -20,17 +22,9 @@ use actix::prelude::*;
 use futures::Future;
 use structopt::StructOpt;
 
+mod msgs;
+use msgs::TestMessage;
 
-#[derive(Debug, Message, Serialize, Deserialize)]
-struct TestMessage {
-    msg: String,
-}
-
-impl RemoteMessage for TestMessage {
-    fn type_id() -> &'static str {
-        "TestMessage"
-    }
-}
 
 struct MyActor {
     cnt: usize,
