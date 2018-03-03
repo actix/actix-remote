@@ -2,23 +2,23 @@ use std::{io, net};
 use std::any::Any;
 use std::sync::Arc;
 use std::time::Duration;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use actix::prelude::*;
 use actix::actors::signal;
 use futures::Future;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tokio_core::net::TcpListener;
+use tokio_core::net::{TcpStream, TcpListener};
 use tokio_core::reactor::Timeout;
-use tokio_io::{AsyncRead, AsyncWrite};
 
 use msgs;
 use utils;
 use worker::NetworkWorker;
 use node::{NetworkNode, NodeInformation};
 use remote::{Remote, RemoteMessage};
-use recipient::{RemoteRecipient, RecipientProxy, RecipientProxySender, RemoteMessageHandler};
+use recipient::{Provider, RecipientProxy,
+                RecipientProxySender, RemoteMessageHandler};
 
 
 struct Proxy {
@@ -30,9 +30,10 @@ pub struct World {
     addr: String,
     addrs: HashMap<String, NodeInformation>,
     nodes: HashMap<String, Addr<Unsync, NetworkNode>>,
+    types: HashMap<String, HashSet<String>>,
     sockets: HashMap<net::SocketAddr, net::TcpListener>,
     wid: usize,
-    workers: HashMap<usize, Recipient<Unsync, msgs::StopWorker>>,
+    workers: HashMap<usize, Addr<Unsync, NetworkWorker<TcpStream>>>,
     handlers: HashMap<&'static str, Arc<RemoteMessageHandler>>,
     recipients: HashMap<&'static str, Proxy>,
     exit: bool,
@@ -47,6 +48,7 @@ impl World {
         let net = World{addr: addr.clone(),
                         addrs: HashMap::new(),
                         nodes: HashMap::new(),
+                        types: HashMap::new(),
                         sockets: HashMap::new(),
                         wid: 0,
                         workers: HashMap::new(),
@@ -58,7 +60,7 @@ impl World {
 
     /// The socket address to bind
     ///
-    /// To mind multiple addresses this method can be call multiple times.
+    /// To bind multiple addresses this method can be call multiple times.
     pub fn bind<S: net::ToSocketAddrs>(mut self, addr: S) -> io::Result<Self> {
         let mut err = None;
         let mut succ = false;
@@ -98,9 +100,8 @@ impl World {
               M::Result: Send + Serialize + DeserializeOwned
     {
         if let Some(info) = self.recipients.get(M::type_id()) {
-            if let Some(&(_, ref saddr)) = info.addr
-                .downcast_ref::<(Addr<Unsync, RecipientProxy<M>>,
-                                 Addr<Syn, RecipientProxy<M>>)>()
+            if let Some(&(_, ref saddr)) = info.addr.downcast_ref
+                ::<(Addr<Unsync, RecipientProxy<M>>, Addr<Syn, RecipientProxy<M>>)>()
             {
                 return Recipient::new(RecipientProxySender::new(saddr.clone()))
             }
@@ -109,17 +110,21 @@ impl World {
         let (addr, saddr): (Addr<Unsync, RecipientProxy<M>>,
                             Addr<Syn, RecipientProxy<M>>) = RecipientProxy::new().start();
         self.recipients.insert(
-            M::type_id(), Proxy{ addr: Box::new(addr.clone()),
-                                 service: addr.clone().recipient()});
+            M::type_id(), Proxy{addr: Box::new(addr.clone()),
+                                service: addr.clone().recipient()});
 
         return Recipient::new(RecipientProxySender::new(saddr))
     }
 
+    /// Register remote recipient provider.
+    ///
+    /// Announce recipient availability to all connected nodes.
     pub fn register_recipient<M>(world: &Addr<Syn, World>, recipient: Recipient<Syn, M>)
         where M: RemoteMessage + 'static, M::Result: Send + Serialize + DeserializeOwned
     {
-        let r = RemoteRecipient{recipient: recipient};
-        world.do_send(msgs::RegisterRecipient(M::type_id(), Arc::new(r)))
+        let r = Provider{recipient: recipient};
+        world.do_send(msgs::ProvideRecipient{
+            type_id: M::type_id(), handler: Arc::new(r)})
     }
 
     fn stop(&mut self, ctx: &mut Context<Self>) {
@@ -189,28 +194,32 @@ impl World {
     }
 }
 
-/// Register message recipient
-impl Handler<msgs::RegisterRecipient> for World {
+/// Register remote message recipient
+impl Handler<msgs::ProvideRecipient> for World {
     type Result = ();
 
-    fn handle(&mut self, msg: msgs::RegisterRecipient, _: &mut Self::Context) {
-        self.handlers.insert(msg.0, msg.1);
-    }
-}
+    fn handle(&mut self, msg: msgs::ProvideRecipient, _: &mut Self::Context) {
+        // notify all workers
+        for addr in self.workers.values() {
+            addr.do_send(msg.clone());
+        }
 
-/// Handle client connection
-impl<T, U> StreamHandler<(T, U), io::Error> for World
-    where T: AsyncRead + AsyncWrite + 'static
-{
-    fn handle(&mut self, msg: (T, U), ctx: &mut Context<Self>) {
-        self.wid += 1;
-        let addr = NetworkWorker::start(
-            self.wid, msg.0, self.handlers.clone(), ctx.address());
-        self.workers.insert(self.wid, addr.recipient());
+        self.handlers.insert(msg.type_id, msg.handler);
     }
 }
 
 /// New client connection, create new downstream connection or re-connect existing
+impl StreamHandler<(TcpStream, net::SocketAddr), io::Error> for World
+{
+    fn handle(&mut self, msg: (TcpStream, net::SocketAddr), ctx: &mut Context<Self>) {
+        self.wid += 1;
+        let addr = NetworkWorker::start(
+            self.wid, msg.0, self.handlers.clone(), ctx.address());
+        self.workers.insert(self.wid, addr);
+    }
+}
+
+/// Worker disconnected notification
 impl Handler<msgs::WorkerDisconnected> for World {
     type Result = ();
 
@@ -219,7 +228,7 @@ impl Handler<msgs::WorkerDisconnected> for World {
     }
 }
 
-/// New client connection, create new downstream connection or re-connect existing
+/// Connected to remote node
 impl Handler<msgs::NodeConnected> for World {
     type Result = ();
 
@@ -239,18 +248,29 @@ impl Handler<msgs::NodeConnected> for World {
     }
 }
 
+/// Handle NodeSupportedTypes message
+///
+/// Node notifies about supported remote types
 impl Handler<msgs::NodeSupportedTypes> for World {
     type Result = ();
 
     fn handle(&mut self, msg: msgs::NodeSupportedTypes, _: &mut Context<Self>) {
-        println!("TEST {:?} {:?}", msg.node, self.nodes.keys());
+        // register in internal registry
+        for tp in &msg.types {
+            if !self.types.contains_key(tp) {
+                self.types.insert(tp.clone(), HashSet::new());
+            }
+            self.types.get_mut(tp).unwrap().insert(msg.node.clone());
+        }
+
+        // notify all recipient proxies
         if let Some(node) = self.nodes.get(&msg.node) {
             for tp in msg.types {
-                println!("TEST: {:?}", tp);
                 if let Some(proxy) = self.recipients.get(tp.as_str()) {
                     let _ = proxy.service.do_send(
                         msgs::TypeSupported {
                             type_id: tp,
+                            node_id: msg.node.clone(),
                             node: node.clone(),
                         });
                 }

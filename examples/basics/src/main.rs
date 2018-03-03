@@ -17,6 +17,7 @@ extern crate structopt;
 #[macro_use] extern crate structopt_derive;
 
 use std::time::Duration;
+
 use actix_remote::*;
 use actix::prelude::*;
 use futures::Future;
@@ -95,9 +96,11 @@ fn main() {
 
     let addr = world.start();
     let a: Addr<Unsync, _> = MyActor::create(move |ctx| {
-        // register actor as recipient for `TestMessage` message
-        World::register_recipient(
-            &addr, ctx.address::<Addr<Syn, _>>().recipient());
+        ctx.run_later(Duration::from_millis(5000), move |_, ctx| {
+            // register actor as recipient for `TestMessage` message
+            World::register_recipient(
+                &addr, ctx.address::<Addr<Syn, _>>().recipient());
+        });
 
         MyActor{cnt: 0, hb, recipient}
     });

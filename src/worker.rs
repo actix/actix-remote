@@ -37,7 +37,8 @@ impl<T> NetworkWorker<T>
             ctx.add_stream(FramedRead::new(r, NetworkServerCodec::default()));
 
             // write side of the connection
-            let mut framed = actix::io::FramedWrite::new(w, NetworkServerCodec::default(), ctx);
+            let mut framed = actix::io::FramedWrite::new(
+                w, NetworkServerCodec::default(), ctx);
             framed.write(Response::Handshake);
 
             // send list of supported messages
@@ -100,5 +101,17 @@ impl<T> Handler<msgs::StopWorker> for NetworkWorker<T>
 
     fn handle(&mut self, _: msgs::StopWorker, ctx: &mut Self::Context) {
         ctx.stop();
+    }
+}
+
+/// New recipient is registered
+impl<T> Handler<msgs::ProvideRecipient> for NetworkWorker<T>
+    where T: AsyncRead + AsyncWrite + 'static
+{
+    type Result = ();
+
+    fn handle(&mut self, msg: msgs::ProvideRecipient, _: &mut Self::Context) {
+        self.framed.write(Response::Supported(vec![msg.type_id.to_owned()]));
+        self.handlers.insert(msg.type_id, msg.handler);
     }
 }

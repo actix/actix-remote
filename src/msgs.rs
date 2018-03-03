@@ -14,31 +14,32 @@ use remote::RemoteMessage;
 use recipient::RemoteMessageHandler;
 
 #[derive(Message)]
-pub struct RegisterNode {
+pub(crate) struct RegisterNode {
     pub addr: net::SocketAddr,
 }
 
 #[derive(Message)]
-pub struct ReconnectNode;
+pub(crate) struct ReconnectNode;
 
 #[derive(Message)]
-pub struct NodeConnected(pub String);
+pub(crate) struct NodeConnected(pub String);
 
+/// NetworkNode notifies world.
+/// New remote recipient is available.
 #[derive(Message, Clone)]
-pub struct NodeSupportedTypes {
+pub(crate) struct NodeSupportedTypes {
     pub node: String,
     pub types: Vec<String>,
 }
 
 #[derive(Message)]
-pub struct StopWorker;
+pub(crate) struct WorkerDisconnected(pub usize);
 
-#[derive(Message)]
-pub struct WorkerDisconnected(pub usize);
-
-#[derive(Message)]
-pub struct RegisterRecipient(pub &'static str, pub Arc<RemoteMessageHandler>);
-
+/// Register new recipient provider
+#[derive(Message, Clone)]
+pub struct ProvideRecipient{
+    pub type_id: &'static str,
+    pub handler: Arc<RemoteMessageHandler>}
 
 #[derive(Message)]
 pub(crate) struct GetRecipient<M>
@@ -51,10 +52,13 @@ pub(crate) struct GetRecipient<M>
 #[derive(Message)]
 pub(crate) struct NodeGone(pub String);
 
+/// World sends this message to RecipientProxy.
+/// Notifies about new node with support of specific type_id.
 #[derive(Message)]
-pub(crate) struct TypeSupported{
+pub(crate) struct TypeSupported {
     pub type_id: String,
-    pub node: Addr<Unsync, NetworkNode>}
+    pub node_id: String,
+    pub node: Addr<Unsync, NetworkNode> }
 
 pub(crate) trait NodeOperations: Actor + Handler<NodeGone> + Handler<TypeSupported> {}
 
@@ -68,3 +72,11 @@ pub(crate) struct SendRemoteMessage{
 impl Message for SendRemoteMessage {
     type Result = Result<String, io::Error>;
 }
+
+//===================================
+// Worker messages
+//===================================
+
+/// Stop worker
+#[derive(Message)]
+pub(crate) struct StopWorker;

@@ -1,5 +1,6 @@
 #![allow(dead_code, unused_variables)]
 use std::marker::PhantomData;
+use std::collections::HashMap;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -20,14 +21,14 @@ pub trait RemoteMessageHandler: Send + Sync {
 
 /// Remote message handler
 pub(crate)
-struct RemoteRecipient<M>
+struct Provider<M>
     where M: RemoteMessage + 'static,
           M::Result: Send + Serialize + DeserializeOwned
 {
     pub recipient: Recipient<Syn, M>,
 }
 
-impl<M> RemoteMessageHandler for RemoteRecipient<M>
+impl<M> RemoteMessageHandler for Provider<M>
     where M: RemoteMessage + 'static, M::Result: Send + Serialize + DeserializeOwned
 {
     fn handle(&self, msg: String, sender: Sender<String>) {
@@ -53,7 +54,7 @@ struct RecipientProxy<M>
           M::Result: Send + Serialize + DeserializeOwned
 {
     m: PhantomData<M>,
-    nodes: Vec<Addr<Unsync, NetworkNode>>,
+    nodes: HashMap<String, Addr<Unsync, NetworkNode>>,
 }
 
 impl<M> RecipientProxy<M>
@@ -61,7 +62,7 @@ impl<M> RecipientProxy<M>
           M::Result: Send + Serialize + DeserializeOwned
 {
     pub fn new() -> Self {
-        RecipientProxy{m: PhantomData, nodes: Vec::new()}
+        RecipientProxy{m: PhantomData, nodes: HashMap::new()}
     }
 }
 
@@ -87,14 +88,19 @@ impl<M> Handler<M> for RecipientProxy<M>
     fn handle(&mut self, msg: M, ctx: &mut Context<Self>) -> RecipientProxyResult<M> {
         let (tx, rx) = oneshot::channel();
         let body = serde_json::to_string(&msg).unwrap();
-        if let Some(node) = self.nodes.first() {
+
+        for node in self.nodes.values() {
             node.do_send(msgs::SendRemoteMessage{
                 type_id: M::type_id().to_string(), data: body, tx: tx});
+            break
         }
         RecipientProxyResult{m: PhantomData, rx: rx}
     }
 }
 
+/// Handle notificartion from World, new node with support has been connected.
+///
+/// RecipientProxy can start sending messages
 impl<M> Handler<msgs::TypeSupported> for RecipientProxy<M>
     where M: RemoteMessage + 'static,
           M::Result: Send + Serialize + DeserializeOwned
@@ -102,8 +108,8 @@ impl<M> Handler<msgs::TypeSupported> for RecipientProxy<M>
     type Result = ();
 
     fn handle(&mut self, msg: msgs::TypeSupported, ctx: &mut Context<Self>) {
-        self.nodes.push(msg.node);
-        debug!("type support {:?} {:?}", msg.type_id, M::type_id());
+        debug!("Remote provider {} is registerd for {}", msg.node_id, msg.type_id);
+        self.nodes.insert(msg.node_id, msg.node);
     }
 }
 
